@@ -222,7 +222,7 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
                 if (tasks_left.fetch_sub(1) == 1) { // if on the last task, notify main
                     cv_main_.notify_one();
                 }
-            });
+            }); 
         }
     }
     cv_wrkr_.notify_all();
