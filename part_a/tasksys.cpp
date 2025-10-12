@@ -184,7 +184,6 @@ void TaskSystemParallelThreadPoolSleeping::thread_func() {
     while (true) {
         std::function<void()> task;
     
-        // if there are still tasks, enqueue them
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
 
@@ -204,8 +203,8 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     {
         std::unique_lock<std::mutex> lock(queue_mutex_);
         stop_ = true;
-        cv_wrkr_.notify_all();
     }
+    cv_wrkr_.notify_all();
     for(auto &t : threads_) {
         t.join();
     }
@@ -221,16 +220,17 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
             tasks_.emplace([this, runnable, task_id, num_total_tasks, &tasks_left] {
                 runnable->runTask(task_id, num_total_tasks);
                 if (tasks_left.fetch_sub(1) == 1) { // if on the last task, notify main
-                    std::unique_lock<std::mutex> lock(queue_mutex_);
                     cv_main_.notify_one();
                 }
             });
         }
-        cv_wrkr_.notify_all();
     }
+    cv_wrkr_.notify_all();
 
-    std::unique_lock<std::mutex> lock(queue_mutex_);
-    cv_main_.wait(lock, [&tasks_left] { return tasks_left == 0;});
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        cv_main_.wait(lock, [&tasks_left] { return tasks_left == 0; });
+    }
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
