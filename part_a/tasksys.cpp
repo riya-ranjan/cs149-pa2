@@ -220,6 +220,9 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
             tasks_.emplace([this, runnable, task_id, num_total_tasks, &tasks_left] {
                 runnable->runTask(task_id, num_total_tasks);
                 if (tasks_left.fetch_sub(1) == 1) { // if on the last task, notify main
+                    {
+                        std::unique_lock<std::mutex> lock(done_mutex_);
+                    }
                     cv_main_.notify_one();
                 }
             }); 
@@ -228,7 +231,7 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     cv_wrkr_.notify_all();
 
     {
-        std::unique_lock<std::mutex> lock(queue_mutex_);
+        std::unique_lock<std::mutex> lock(done_mutex_);
         cv_main_.wait(lock, [&tasks_left] { return tasks_left == 0; });
     }
 }

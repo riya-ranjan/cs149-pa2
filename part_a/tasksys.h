@@ -87,7 +87,8 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
     private:
         std::vector<std::thread>          threads_;       // worker threads
         std::queue<std::function<void()>> tasks_;         // queue of tasks
-        std::mutex                        queue_mutex_;   // lock for moving tasks of the queue 
+        std::mutex                        queue_mutex_;   // lock for moving tasks off the queue 
+        std::mutex                        done_mutex_;    // lock for determining when to stop 
         bool stop_{false};                                // once we have no tasks left, stop
         std::condition_variable           cv_wrkr_;       // cv for worker threads
         std::condition_variable           cv_main_;       // cv for main thread      
