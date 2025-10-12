@@ -7,6 +7,7 @@
 #include <queue>
 #include <mutex>
 #include <functional>
+#include <condition_variable>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
@@ -40,7 +41,7 @@ class TaskSystemParallelSpawn: public ITaskSystem {
                                 const std::vector<TaskID>& deps);
         void sync();
     private:
-        int num_threads__;
+        int num_threads_;
 };
 
 /*
@@ -63,9 +64,8 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
     private:
         std::vector<std::thread>          threads_;       // worker threads
         std::queue<std::function<void()>> tasks_;         // queue of tasks
-        std::mutex                        queue_mutex_;   // erm
-
-        bool stop_{false};                                // should the thread pool stop
+        std::mutex                        queue_mutex_;   // lock for moving tasks of the queue 
+        bool stop_{false};                                // once we have no tasks left, stop 
 };
 
 /*
@@ -80,9 +80,17 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         ~TaskSystemParallelThreadPoolSleeping();
         const char* name();
         void run(IRunnable* runnable, int num_total_tasks);
+        void thread_func();
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+    private:
+        std::vector<std::thread>          threads_;       // worker threads
+        std::queue<std::function<void()>> tasks_;         // queue of tasks
+        std::mutex                        queue_mutex_;   // lock for moving tasks of the queue 
+        bool stop_{false};                                // once we have no tasks left, stop
+        std::condition_variable           cv_wrkr_;       // cv for worker threads
+        std::condition_variable           cv_main_;       // cv for main thread      
 };
 
 #endif
