@@ -62,9 +62,39 @@ typedef struct {
 */
 class YourTask : public IRunnable {
     public:
-        YourTask() {}
-        ~YourTask() {}
-        void runTask(int task_id, int num_total_tasks) {}
+        double *input_;
+        double *output_;
+        int *exps_;
+        int num_elements_;
+        YourTask(double *input, double *output, int *exps, int num_elems) {
+            input_ = input;
+            output_ = output;
+            exps_ = exps;
+            num_elements_ = num_elems;
+        }
+        ~YourTask() {
+            input_ = nullptr;
+            output_ = nullptr;
+            exps_ = nullptr;
+        }
+
+        static inline double exponentiate(double base, int exponent) {
+            double accumulator = 1;
+            for (int i = 0; i < exponent; ++i) {
+                accumulator *= base;
+            }
+            return accumulator;
+        }
+
+        void runTask(int task_id, int num_total_tasks) {
+            int elements_per_task = (num_elements_ + num_total_tasks - 1) / num_total_tasks;
+            int start_el = elements_per_task * task_id;
+            int end_el = std::min(start_el + elements_per_task, num_elements_);
+
+            for (int i=start_el; i<end_el; i++)
+                output_[i] = exponentiate(input_[i], exps_[i]);
+
+        }
 };
 /*
  * Implement your test here. Call this function from a wrapper that passes in
@@ -72,10 +102,20 @@ class YourTask : public IRunnable {
  * `simpleTestAsync` as an example.
  */
 TestResults yourTest(ITaskSystem* t, bool do_async, int num_elements, int num_bulk_task_launches) {
-    // TODO: initialize your input and output buffers
-    int* output = new int[num_elements];
+    std::srand(10);
+    double* input = new double[num_elements];
+    double* output = new double[num_elements];
+    int* exponents = new int[num_elements];
 
-    // TODO: instantiate your bulk task launches
+    for (int i = 0; i < num_elements; i++) {
+        input[i] = (static_cast<double>(i) / num_elements); 
+        exponents[i] = std::rand() % 10;
+    }
+
+    std::vector<YourTask*> my_tasks(num_bulk_task_launches);
+    for (int i = 0; i < num_bulk_task_launches; i++) {
+        my_tasks[i] = new YourTask(input, output, exponents, num_elements);
+    }
 
     // Run the test
     double start_time = CycleTimer::currentSeconds();
@@ -86,6 +126,9 @@ TestResults yourTest(ITaskSystem* t, bool do_async, int num_elements, int num_bu
         // t->sync() at end
     } else {
         // TODO: make calls to t->run
+        for (int i = 0; i < num_bulk_task_launches; i++) {
+            t->run(my_tasks[i], num_elements);
+        }
     }
     double end_time = CycleTimer::currentSeconds();
 
@@ -94,21 +137,23 @@ TestResults yourTest(ITaskSystem* t, bool do_async, int num_elements, int num_bu
     results.passed = true;
 
     for (int i=0; i<num_elements; i++) {
-        int value = 0; // TODO: initialize value
+        double value = input[i]; // TODO: initialize value
         for (int j=0; j<num_bulk_task_launches; j++) {
-            // TODO: update value as expected
+           value = YourTask::exponentiate(value, exponents[i]);
         }
 
-        int expected = value;
+        double expected = value;
         if (output[i] != expected) {
             results.passed = false;
-            printf("%d: %d expected=%d\n", i, output[i], expected);
+            printf("%d: %.2f expected=%.2f\n", i, output[i], expected);
             break;
         }
     }
     results.time = end_time - start_time;
 
     delete [] output;
+    delete [] input;
+    delete [] exponents;
 
     return results;
 }
@@ -711,6 +756,12 @@ TestResults pingPongUnequalAsyncTest(ITaskSystem* t) {
     int num_elements = 512 * 1024;
     int base_iters = 32;
     return pingPongTest(t, false, true, num_elements, base_iters);
+}
+
+TestResults myTestSync(ITaskSystem* t) {
+   int num_elements = 32 * 1024;
+   return yourTest(t, false, num_elements, 1);
+
 }
 
 /*

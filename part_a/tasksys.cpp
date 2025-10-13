@@ -129,7 +129,10 @@ void TaskSystemParallelThreadPoolSpinning::thread_func() {
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
-    stop_ = true;
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        stop_ = true;
+    }
     for(auto &t : threads_) {
         t.join();
     }
@@ -195,16 +198,12 @@ void TaskSystemParallelThreadPoolSleeping::thread_func() {
             // reacquire lock if we have work to do or need to stop
             cv_wrkr_.wait(lock, [this] { return cur_task_id_ < total_tasks_ || stop_; });
 
-            // if (stop_ && tasks_.empty()) return;
             if (stop_ && cur_task_id_ == total_tasks_) return;
 
             running_task = cur_task_id_;
-            cur_task_id_.fetch_add(1);
+            cur_task_id_++;
 
-            // task = move(tasks_.front());
-            // tasks_.pop(); 
         }
-        // cv_wrkr_.notify_all();
         runnable_ptr_->runTask(running_task, total_tasks_);
         if (tasks_left_.fetch_sub(1) == 1) {
             {
@@ -212,7 +211,6 @@ void TaskSystemParallelThreadPoolSleeping::thread_func() {
             }
             cv_main_.notify_one();
         }
-        // task();
     }
 }
 
@@ -228,22 +226,8 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
-    // std::atomic<int> tasks_left(num_total_tasks);
-
     {
         std::unique_lock<std::mutex> lock(queue_mutex_);
-        /** for (int i = 0; i < num_total_tasks; i++) {
-            int task_id = i; 
-            tasks_.emplace([this, runnable, task_id, num_total_tasks, &tasks_left] {
-                runnable->runTask(task_id, num_total_tasks);
-                if (tasks_left.fetch_sub(1) == 1) { // if on the last task, notify main
-                    {
-                        std::unique_lock<std::mutex> lock(done_mutex_);
-                    }
-                    cv_main_.notify_one();
-                }
-            }); 
-        } **/
         runnable_ptr_ = runnable;
         cur_task_id_ = 0;
         total_tasks_ = num_total_tasks;
