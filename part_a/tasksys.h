@@ -2,6 +2,7 @@
 #define _TASKSYS_H
 
 #include "itasksys.h"
+#include <cstdio>
 #include <thread>
 #include <atomic>
 #include <queue>
@@ -91,7 +92,11 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::mutex                        done_mutex_;    // lock for determining when to stop 
         bool stop_{false};                                // once we have no tasks left, stop
         std::condition_variable           cv_wrkr_;       // cv for worker threads
-        std::condition_variable           cv_main_;       // cv for main thread      
+        std::condition_variable           cv_main_;       // cv for main thread     
+        std::atomic<int>                  cur_task_id_;   // id of current task
+        IRunnable*                        runnable_ptr_;   // ptr for runnable       
+        std::atomic<int>                  total_tasks_;    // total tasks to do
+        std::atomic<int>                  tasks_done_;
 };
 
 #endif

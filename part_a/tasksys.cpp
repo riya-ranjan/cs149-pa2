@@ -174,6 +174,10 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 }
 
 TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads) {
+    runnable_ptr_ = nullptr;
+    cur_task_id_ = -1;
+    total_tasks_ = -1;
+    tasks_done_ = 0;
     for (int i = 0; i < num_threads; i++) {
         threads_.emplace_back(
             &TaskSystemParallelThreadPoolSleeping::thread_func, this);
@@ -181,6 +185,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 }
 
 void TaskSystemParallelThreadPoolSleeping::thread_func() {
+    int running_task = -1;
     while (true) {
         std::function<void()> task;
     
@@ -188,14 +193,26 @@ void TaskSystemParallelThreadPoolSleeping::thread_func() {
             std::unique_lock<std::mutex> lock(queue_mutex_);
 
             // reacquire lock if we have work to do or need to stop
-            cv_wrkr_.wait(lock, [this] { return !tasks_.empty() || stop_; });
+            cv_wrkr_.wait(lock, [this] { return cur_task_id_ < total_tasks_ || stop_; });
 
-            if (stop_ && tasks_.empty()) return;
+            // if (stop_ && tasks_.empty()) return;
+            if (stop_ && cur_task_id_ == total_tasks_) return;
 
-            task = move(tasks_.front());
-            tasks_.pop(); 
+            running_task = cur_task_id_;
+            cur_task_id_.fetch_add(1);
+
+            // task = move(tasks_.front());
+            // tasks_.pop(); 
         }
-        task();
+        cv_wrkr_.notify_all();
+        runnable_ptr_->runTask(running_task, total_tasks_);
+        if (tasks_done_.fetch_add(1) == total_tasks_ - 1) {
+            {
+                std::unique_lock<std::mutex> lock(done_mutex_);
+            }
+            cv_main_.notify_one();
+        }
+        // task();
     }
 }
 
@@ -211,11 +228,11 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
-    std::atomic<int> tasks_left(num_total_tasks);
+    // std::atomic<int> tasks_left(num_total_tasks);
 
     {
         std::unique_lock<std::mutex> lock(queue_mutex_);
-        for (int i = 0; i < num_total_tasks; i++) {
+        /** for (int i = 0; i < num_total_tasks; i++) {
             int task_id = i; 
             tasks_.emplace([this, runnable, task_id, num_total_tasks, &tasks_left] {
                 runnable->runTask(task_id, num_total_tasks);
@@ -226,13 +243,16 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
                     cv_main_.notify_one();
                 }
             }); 
-        }
+        } **/
+        runnable_ptr_ = runnable;
+        cur_task_id_ = 0;
+        total_tasks_ = num_total_tasks;
     }
     cv_wrkr_.notify_all();
 
     {
         std::unique_lock<std::mutex> lock(done_mutex_);
-        cv_main_.wait(lock, [&tasks_left] { return tasks_left == 0; });
+        cv_main_.wait(lock, [this] { return tasks_done_ == total_tasks_; });
     }
 }
 
