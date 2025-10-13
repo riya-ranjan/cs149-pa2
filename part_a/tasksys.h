@@ -95,8 +95,8 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::condition_variable           cv_main_;       // cv for main thread     
         std::atomic<int>                  cur_task_id_;   // id of current task
         IRunnable*                        runnable_ptr_;   // ptr for runnable       
-        std::atomic<int>                  total_tasks_;    // total tasks to do
-        std::atomic<int>                  tasks_done_;
+        int                               total_tasks_;    // total tasks to do
+        std::atomic<int>                  tasks_left_;
 };
 
 #endif

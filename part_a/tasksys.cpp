@@ -177,7 +177,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     runnable_ptr_ = nullptr;
     cur_task_id_ = -1;
     total_tasks_ = -1;
-    tasks_done_ = 0;
+    
     for (int i = 0; i < num_threads; i++) {
         threads_.emplace_back(
             &TaskSystemParallelThreadPoolSleeping::thread_func, this);
@@ -204,9 +204,9 @@ void TaskSystemParallelThreadPoolSleeping::thread_func() {
             // task = move(tasks_.front());
             // tasks_.pop(); 
         }
-        cv_wrkr_.notify_all();
+        // cv_wrkr_.notify_all();
         runnable_ptr_->runTask(running_task, total_tasks_);
-        if (tasks_done_.fetch_add(1) == total_tasks_ - 1) {
+        if (tasks_left_.fetch_sub(1) == 1) {
             {
                 std::unique_lock<std::mutex> lock(done_mutex_);
             }
@@ -247,12 +247,13 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
         runnable_ptr_ = runnable;
         cur_task_id_ = 0;
         total_tasks_ = num_total_tasks;
+        tasks_left_ = num_total_tasks;
     }
     cv_wrkr_.notify_all();
 
     {
         std::unique_lock<std::mutex> lock(done_mutex_);
-        cv_main_.wait(lock, [this] { return tasks_done_ == total_tasks_; });
+        cv_main_.wait(lock, [this] { return tasks_left_ == 0; });
     }
 }
 
