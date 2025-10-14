@@ -137,6 +137,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 void TaskSystemParallelThreadPoolSleeping::thread_func() {
     int running_task = -1;
     TaskStruct* next_task = nullptr;
+    bool done_with_tasks = false;
     while (true) {
         {
             std::unique_lock<std::mutex> lock(queue_mutex);
@@ -149,37 +150,46 @@ void TaskSystemParallelThreadPoolSleeping::thread_func() {
             if (next_task->pending_task_id == next_task->total_tasks) {
                 printf("The task %d is done after %d mini tasks have been finished\n", next_task->task_id, next_task->pending_task_id);
                 ready_tasks.pop();
-                update_finished_tasks(next_task);
+                done_with_tasks = !update_finished_tasks(next_task);
             } else {
                 printf("Currently running mini task %d of task %d\n", next_task->pending_task_id, next_task->task_id);
                 running_task = next_task->pending_task_id;
                 next_task->pending_task_id++;
             }
         }
-        if (next_task) next_task->runnable_ptr->runTask(running_task, next_task->total_tasks);
+        if (next_task) {
+            next_task->runnable_ptr->runTask(running_task, next_task->total_tasks);
+        } else if (done_with_tasks) {
+            cv_finished.notify_one();
+        } else {
+            cv_wrkr.notify_all();
+        }
         next_task = nullptr;
     }
 }
 
-void TaskSystemParallelThreadPoolSleeping::update_finished_tasks(TaskStruct* finished_task) {
+bool TaskSystemParallelThreadPoolSleeping::update_finished_tasks(TaskStruct* finished_task) {
+    TaskID done_id = finished_task->task_id;
+    delete finished_task;
     {
         std::unique_lock<std::mutex> lock(finished_set_mutex);
-        printf("Adding task %d to finished tasks\n", finished_task->task_id);
-        finished_tasks.insert(finished_task->task_id);
+        printf("Adding task %d to finished tasks\n", done_id);
+        finished_tasks.insert(done_id);
     }
     // free heap allocated memory
-    delete finished_task;
+    // delete finished_task;
 
     // update our ready tasks
     bool has_tasks = false;
     {
-        std::unique_lock<std::mutex> lock(queue_mutex);
+        // std::unique_lock<std::mutex> lock(queue_mutex);
 
         // if we have no outstanding tasks, notify our main thread
         if (!(ready_tasks.empty() && waiting_tasks.empty())) {
             has_tasks = true;
             for (auto it = waiting_tasks.begin(); it != waiting_tasks.end(); ) {
-                if (is_task_ready((*it)->parent_tasks)) {
+                (*it)->remove_parent(done_id);
+                if (((*it)->parent_tasks).empty()) {
                     printf("Moving task %d from waiting to ready\n", (*it)->task_id);
                     ready_tasks.emplace(*it);
                     it = waiting_tasks.erase(it);
@@ -191,12 +201,7 @@ void TaskSystemParallelThreadPoolSleeping::update_finished_tasks(TaskStruct* fin
             printf("No more tasks left\n");
         }
     }
-    if (has_tasks) {
-        cv_wrkr.notify_all();
-    } else {
-        printf("Notifying that there are no tasks left...\n");
-        cv_finished.notify_one();
-    }
+    return has_tasks;
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
@@ -222,20 +227,23 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     }
 }
 
-bool TaskSystemParallelThreadPoolSleeping::is_task_ready(std::set<TaskID> &deps) {
-    bool found = false;
+void TaskSystemParallelThreadPoolSleeping::update_parent_tasks(std::unordered_set<TaskID> &deps) {
+    printf("Checking dependencies...\n");
     {
         std::unique_lock<std::mutex> lock(finished_set_mutex);
-        found = std::includes(finished_tasks.begin(), finished_tasks.end(),
-                              deps.begin(), deps.end());
+        for (TaskID t : finished_tasks) {
+            deps.erase(t);
+        }
     }
-    return found;
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                                     const std::vector<TaskID>& deps) {
     new_task_id++;
-    std::set<TaskID> deps_set(deps.begin(), deps.end());
+    std::unordered_set<TaskID> deps_set(deps.begin(), deps.end());
+    printf("Need to check dependencies for task %d\n", new_task_id);
+    update_parent_tasks(deps_set);
+
 
     TaskStruct* new_task = new TaskStruct{new_task_id,
                                           runnable,
@@ -243,7 +251,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
                                           deps_set,
                                           0};
 
-    if (is_task_ready(deps_set)) {
+    if (deps_set.empty()) {
         {
             printf("Task %d is ready to run\n", new_task_id);
             std::unique_lock<std::mutex> lock(queue_mutex);
@@ -264,8 +272,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 void TaskSystemParallelThreadPoolSleeping::sync() {
     {
         std::unique_lock<std::mutex> lock(queue_mutex);
-        cv_finished.wait(lock, [this] { return ready_tasks.empty() && 
-                                          waiting_tasks.empty(); });
+        cv_finished.wait(lock, [this] { return ready_tasks.empty() && waiting_tasks.empty(); });
         printf("Setting stop to true...\n");
         stop = true;
     }
