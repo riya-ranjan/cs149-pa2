@@ -190,8 +190,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 void TaskSystemParallelThreadPoolSleeping::thread_func() {
     int running_task = -1;
     while (true) {
-        std::function<void()> task;
-    
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
 

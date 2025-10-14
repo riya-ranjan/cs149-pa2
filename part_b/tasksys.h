@@ -2,6 +2,27 @@
 #define _TASKSYS_H
 
 #include "itasksys.h"
+#include <set>
+#include <vector>
+#include <queue>
+#include <algorithm>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <cstdio>
+
+struct TaskStruct {
+    TaskID task_id;
+    IRunnable* runnable_ptr;
+    int total_tasks;
+    std::set<TaskID> parent_tasks;
+    int pending_task_id;
+
+    void remove_parent(TaskID finished_parent) {
+        if (parent_tasks.find(finished_parent) != parent_tasks.end())
+            parent_tasks.erase(finished_parent);
+    };
+};
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
@@ -68,6 +89,24 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+        bool is_task_ready(std::set<TaskID> &deps);
+        void update_finished_tasks(TaskStruct* finished_task);
+        void thread_func();
+    private:
+        TaskID new_task_id;
+        std::mutex queue_mutex;
+        std::mutex finished_set_mutex;
+
+        std::condition_variable cv_finished;
+        std::condition_variable cv_wrkr;
+
+        std::set<TaskID> finished_tasks;
+        std::queue<TaskStruct*> ready_tasks;
+        std::vector<TaskStruct*> waiting_tasks;
+
+        std::vector<std::thread> threads;
+
+        bool stop{false};
 };
 
 #endif

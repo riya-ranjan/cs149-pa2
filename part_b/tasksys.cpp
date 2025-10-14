@@ -98,7 +98,7 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // NOTE: CS149 students are not expected to implement TaskSystemParallelThreadPoolSpinning in Part B.
     for (int i = 0; i < num_total_tasks; i++) {
         runnable->runTask(i, num_total_tasks);
-    }
+}
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -127,19 +127,83 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 }
 
 TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads) {
-    //
-    // TODO: CS149 student implementations may decide to perform setup
-    // operations (such as thread pool construction) here.
-    // Implementations are free to add new class member variables
-    // (requiring changes to tasksys.h).
-    //
+    new_task_id = -1;
+    for (int i = 0; i < num_threads; i++) {
+        threads.emplace_back(
+            &TaskSystemParallelThreadPoolSleeping::thread_func, this);
+    }
+}
+
+void TaskSystemParallelThreadPoolSleeping::thread_func() {
+    int running_task = -1;
+    TaskStruct* next_task = nullptr;
+    while (true) {
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+
+            cv_wrkr.wait(lock, [this] { return !ready_tasks.empty() || stop; });
+
+            if (stop && ready_tasks.empty()) return; 
+
+            next_task = ready_tasks.front();
+            if (next_task->pending_task_id == next_task->total_tasks) {
+                printf("The task %d is done after %d mini tasks have been finished\n", next_task->task_id, next_task->pending_task_id);
+                ready_tasks.pop();
+                update_finished_tasks(next_task);
+            } else {
+                printf("Currently running mini task %d of task %d\n", next_task->pending_task_id, next_task->task_id);
+                running_task = next_task->pending_task_id;
+                next_task->pending_task_id++;
+            }
+        }
+        if (next_task) next_task->runnable_ptr->runTask(running_task, next_task->total_tasks);
+        next_task = nullptr;
+    }
+}
+
+void TaskSystemParallelThreadPoolSleeping::update_finished_tasks(TaskStruct* finished_task) {
+    {
+        std::unique_lock<std::mutex> lock(finished_set_mutex);
+        printf("Adding task %d to finished tasks\n", finished_task->task_id);
+        finished_tasks.insert(finished_task->task_id);
+    }
+    // free heap allocated memory
+    delete finished_task;
+
+    // update our ready tasks
+    bool has_tasks = false;
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex);
+
+        // if we have no outstanding tasks, notify our main thread
+        if (!(ready_tasks.empty() && waiting_tasks.empty())) {
+            has_tasks = true;
+            for (auto it = waiting_tasks.begin(); it != waiting_tasks.end(); ) {
+                if (is_task_ready((*it)->parent_tasks)) {
+                    printf("Moving task %d from waiting to ready\n", (*it)->task_id);
+                    ready_tasks.emplace(*it);
+                    it = waiting_tasks.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        } else {
+            printf("No more tasks left\n");
+        }
+    }
+    if (has_tasks) {
+        cv_wrkr.notify_all();
+    } else {
+        printf("Notifying that there are no tasks left...\n");
+        cv_finished.notify_one();
+    }
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     //
     // TODO: CS149 student implementations may decide to perform cleanup
     // operations (such as thread pool shutdown construction) here.
-    // Implementations are free to add new class member variables
+    // ImplementNotifations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
 }
@@ -158,26 +222,55 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     }
 }
 
+bool TaskSystemParallelThreadPoolSleeping::is_task_ready(std::set<TaskID> &deps) {
+    bool found = false;
+    {
+        std::unique_lock<std::mutex> lock(finished_set_mutex);
+        found = std::includes(finished_tasks.begin(), finished_tasks.end(),
+                              deps.begin(), deps.end());
+    }
+    return found;
+}
+
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                                     const std::vector<TaskID>& deps) {
+    new_task_id++;
+    std::set<TaskID> deps_set(deps.begin(), deps.end());
 
+    TaskStruct* new_task = new TaskStruct{new_task_id,
+                                          runnable,
+                                          num_total_tasks,
+                                          deps_set,
+                                          0};
 
-    //
-    // TODO: CS149 students will implement this method in Part B.
-    //
-
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+    if (is_task_ready(deps_set)) {
+        {
+            printf("Task %d is ready to run\n", new_task_id);
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            ready_tasks.emplace(new_task);
+            printf("The size of the ready queue is %ld\n", ready_tasks.size());
+        }
+        cv_wrkr.notify_all();
+    } else {
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            printf("Task %d is not ready to run, adding to waiting queue\n", new_task_id);
+            waiting_tasks.emplace_back(new_task);
+        }
     }
-
-    return 0;
+    return new_task_id;
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
-
-    //
-    // TODO: CS149 students will modify the implementation of this method in Part B.
-    //
-
-    return;
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex);
+        cv_finished.wait(lock, [this] { return ready_tasks.empty() && 
+                                          waiting_tasks.empty(); });
+        printf("Setting stop to true...\n");
+        stop = true;
+    }
+    cv_wrkr.notify_all();
+    for (auto &t : threads) {
+        t.join();
+    }
 }
