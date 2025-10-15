@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <thread>
 #include <cstdio>
+#include <atomic>
 
 struct TaskStruct {
     TaskID task_id;
@@ -17,6 +18,7 @@ struct TaskStruct {
     int total_tasks;
     std::unordered_set<TaskID> parent_tasks;
     int pending_task_id;
+    std::atomic<int> mini_tasks_left;
 
     void remove_parent(TaskID finished_parent) {
         parent_tasks.erase(finished_parent);
@@ -89,7 +91,7 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
                                 const std::vector<TaskID>& deps);
         void sync();
         void update_parent_tasks(std::unordered_set<TaskID> &deps);
-        bool update_finished_tasks(TaskStruct* finished_task);
+        void update_finished_tasks(TaskStruct* finished_task);
         void thread_func();
     private:
         TaskID new_task_id;

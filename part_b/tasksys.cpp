@@ -137,7 +137,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 void TaskSystemParallelThreadPoolSleeping::thread_func() {
     int running_task = -1;
     TaskStruct* next_task = nullptr;
-    bool done_with_tasks = false;
     while (true) {
         {
             std::unique_lock<std::mutex> lock(queue_mutex);
@@ -147,10 +146,11 @@ void TaskSystemParallelThreadPoolSleeping::thread_func() {
             if (stop && ready_tasks.empty()) return; 
 
             next_task = ready_tasks.front();
+            
             if (next_task->pending_task_id == next_task->total_tasks) {
-                printf("The task %d is done after %d mini tasks have been finished\n", next_task->task_id, next_task->pending_task_id);
+                printf("No more tasks for task %d, so popping!\n", next_task->task_id);
                 ready_tasks.pop();
-                done_with_tasks = !update_finished_tasks(next_task);
+                next_task = nullptr;
             } else {
                 printf("Currently running mini task %d of task %d\n", next_task->pending_task_id, next_task->task_id);
                 running_task = next_task->pending_task_id;
@@ -159,32 +159,30 @@ void TaskSystemParallelThreadPoolSleeping::thread_func() {
         }
         if (next_task) {
             next_task->runnable_ptr->runTask(running_task, next_task->total_tasks);
-        } else if (done_with_tasks) {
-            cv_finished.notify_one();
-        } else {
-            cv_wrkr.notify_all();
+
+            // if we're done with the last task, mark the overall task as unfinished
+            if (next_task->mini_tasks_left.fetch_sub(1) == 1) {
+                printf("The last task %d of %d is done running\n", running_task, next_task->total_tasks);
+                update_finished_tasks(next_task);
+            }
         }
         next_task = nullptr;
     }
 }
 
-bool TaskSystemParallelThreadPoolSleeping::update_finished_tasks(TaskStruct* finished_task) {
+void TaskSystemParallelThreadPoolSleeping::update_finished_tasks(TaskStruct* finished_task) {
     TaskID done_id = finished_task->task_id;
-    delete finished_task;
+    // delete finished_task;
     {
         std::unique_lock<std::mutex> lock(finished_set_mutex);
         printf("Adding task %d to finished tasks\n", done_id);
         finished_tasks.insert(done_id);
     }
-    // free heap allocated memory
-    // delete finished_task;
 
     // update our ready tasks
     bool has_tasks = false;
     {
-        // std::unique_lock<std::mutex> lock(queue_mutex);
-
-        // if we have no outstanding tasks, notify our main thread
+        std::unique_lock<std::mutex> lock(queue_mutex);
         if (!(ready_tasks.empty() && waiting_tasks.empty())) {
             has_tasks = true;
             for (auto it = waiting_tasks.begin(); it != waiting_tasks.end(); ) {
@@ -201,7 +199,11 @@ bool TaskSystemParallelThreadPoolSleeping::update_finished_tasks(TaskStruct* fin
             printf("No more tasks left\n");
         }
     }
-    return has_tasks;
+    if (has_tasks) {
+        cv_wrkr.notify_all();
+    } else {
+        cv_finished.notify_one();
+    }
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
@@ -249,7 +251,9 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
                                           runnable,
                                           num_total_tasks,
                                           deps_set,
-                                          0};
+                                          0,
+                                          {}};
+    new_task->mini_tasks_left.store(num_total_tasks);
 
     if (deps_set.empty()) {
         {
@@ -261,6 +265,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
         cv_wrkr.notify_all();
     } else {
         {
+            printf("Trying to add to waiting queue, waiting for the lock\n");
             std::unique_lock<std::mutex> lock(queue_mutex);
             printf("Task %d is not ready to run, adding to waiting queue\n", new_task_id);
             waiting_tasks.emplace_back(new_task);
