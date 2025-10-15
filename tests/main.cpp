@@ -33,7 +33,7 @@ enum TaskSystemType {
 
 ITaskSystem *selectTaskSystemRefImpl(int num_threads, TaskSystemType type) {
     assert(type < N_TASKSYS_IMPLS);
-
+    
     if (type == SERIAL) {
         return new TaskSystemSerial(num_threads);
     } else if (type == PARALLEL_SPAWN) {

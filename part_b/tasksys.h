@@ -101,7 +101,7 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::condition_variable cv_finished;
         std::condition_variable cv_wrkr;
 
-        std::unordered_set<TaskID> finished_tasks;
+        std::unordered_set<TaskStruct*> finished_tasks;
         std::queue<TaskStruct*> ready_tasks;
         std::vector<TaskStruct*> waiting_tasks;
 

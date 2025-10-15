@@ -570,11 +570,11 @@ TestResults simpleTest(ITaskSystem* t, bool do_async) {
     if (do_async) {
         std::vector<TaskID> firstDeps;
         TaskID first_task_id = t->runAsyncWithDeps(&first, num_tasks, firstDeps);
-        printf("async with deps returned1!\n");
+        printf("async with deps returned 1!\n");
         std::vector<TaskID> secondDeps;
         secondDeps.push_back(first_task_id);
         t->runAsyncWithDeps(&second, num_tasks, secondDeps);
-        printf("async with deps returned2!\n");
+        printf("async with deps returned 2!\n");
         t->sync();
         printf("sync returned!\n");
     } else {
