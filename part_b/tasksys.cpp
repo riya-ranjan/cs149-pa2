@@ -127,6 +127,7 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 }
 
 TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads) {
+    launched_tasks = 0;
     new_task_id = -1;
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back(
@@ -170,6 +171,7 @@ void TaskSystemParallelThreadPoolSleeping::update_finished_tasks(TaskStruct* fin
         std::unique_lock<std::mutex> lock(queue_mutex);
         TaskID done_id = finished_task->task_id;
         finished_tasks.insert(finished_task);
+        launched_tasks.fetch_sub(1);
 
         // update our ready tasks 
         if (!(ready_tasks.empty() && waiting_tasks.empty())) {
@@ -227,6 +229,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     new_task_id++;
     std::unordered_set<TaskID> deps_set(deps.begin(), deps.end());
     bool added_to_ready_queue = false;
+    launched_tasks.fetch_add(1);
 
     {
         std::unique_lock<std::mutex> lock(queue_mutex);
@@ -255,6 +258,6 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 void TaskSystemParallelThreadPoolSleeping::sync() {
     {
         std::unique_lock<std::mutex> lock(queue_mutex);
-        cv_finished.wait(lock, [this] { return ready_tasks.empty() && waiting_tasks.empty(); });
+        cv_finished.wait(lock, [this] { return ready_tasks.empty() && waiting_tasks.empty() && launched_tasks == 0; });
     }
 }

@@ -96,7 +96,6 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
     private:
         TaskID new_task_id;
         std::mutex queue_mutex;
-        std::mutex finished_set_mutex;
 
         std::condition_variable cv_finished;
         std::condition_variable cv_wrkr;
@@ -106,6 +105,8 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::vector<TaskStruct*> waiting_tasks;
 
         std::vector<std::thread> threads;
+
+        std::atomic<int> launched_tasks;        // keep track of launched tasks
 
         bool stop{false};
 };
