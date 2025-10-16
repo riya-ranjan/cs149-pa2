@@ -9,6 +9,8 @@
 #include <mutex>
 #include <functional>
 #include <condition_variable>
+#include <sstream>
+#include <iostream>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a

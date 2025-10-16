@@ -122,8 +122,6 @@ void TaskSystemParallelThreadPoolSpinning::thread_func() {
         // run the task if there is one
         if (task) {
             task();
-        } else {
-            std::this_thread::yield();
         }
     }
 }
@@ -152,8 +150,10 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
         }
     }
 
-    while(tasks_left.load() > 0) {
-        std::this_thread::yield();
+    while(true) {
+        if (tasks_left == 0) {
+            return;
+        }
     } 
 }
 
@@ -202,7 +202,17 @@ void TaskSystemParallelThreadPoolSleeping::thread_func() {
             cur_task_id_++;
 
         }
+        /** 
+        // print for test debug
+        std::ostringstream oss;
+        oss << "Thread " << std::this_thread::get_id() << "\t is running task " << running_task << "\n";
+        std::cout << oss.str(); **/
+
         runnable_ptr_->runTask(running_task, total_tasks_);
+        /**
+        std::ostringstream oss2;
+        oss2 << "Thread " << std::this_thread::get_id() << "\t finished running task " << running_task << "\n";
+        std::cout << oss2.str(); **/
         if (tasks_left_.fetch_sub(1) == 1) {
             {
                 std::unique_lock<std::mutex> lock(done_mutex_);
