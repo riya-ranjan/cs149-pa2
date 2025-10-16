@@ -7,6 +7,10 @@
 #include <atomic>
 #include <set>
 
+// riya debug
+#include <sstream>
+#include <iostream>
+
 #include "CycleTimer.h"
 #include "itasksys.h"
 
@@ -91,6 +95,10 @@ class YourTask : public IRunnable {
             int start_el = elements_per_task * task_id;
             int end_el = std::min(start_el + elements_per_task, num_elements_);
 
+            std::ostringstream oss;
+            oss << "Task " << task_id << " has exponent " << exps_[start_el] << "\n";
+            std::cout << oss.str();
+
             for (int i=start_el; i<end_el; i++)
                 output_[i] = exponentiate(input_[i], exps_[i]);
 
@@ -109,7 +117,12 @@ TestResults yourTest(ITaskSystem* t, bool do_async, int num_elements, int num_bu
 
     for (int i = 0; i < num_elements; i++) {
         input[i] = (static_cast<double>(i) / num_elements); 
-        exponents[i] = std::rand() % 10;
+        if (i % 12 == 0) {
+            exponents[i] = 10000;
+        } else {
+            exponents[i] = 10;
+        }
+        // exponents[i] = std::rand() % 1000;
     }
 
     std::vector<YourTask*> my_tasks(num_bulk_task_launches);
@@ -125,7 +138,6 @@ TestResults yourTest(ITaskSystem* t, bool do_async, int num_elements, int num_bu
         // make calls to t->runAsyncWithDeps and push TaskID to dependency vector
         // t->sync() at end
     } else {
-        // TODO: make calls to t->run
         for (int i = 0; i < num_bulk_task_launches; i++) {
             t->run(my_tasks[i], num_elements);
         }
